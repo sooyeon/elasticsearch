@@ -137,6 +137,16 @@ public class UpdateRequestBuilder extends BaseRequestBuilder<UpdateRequest, Upda
     }
 
     /**
+     * Should a refresh be executed post this update operation causing the operation to
+     * be searchable. Note, heavy indexing should not set this to <tt>true</tt>. Defaults
+     * to <tt>false</tt>.
+     */
+    public UpdateRequestBuilder setRefresh(boolean refresh) {
+        request.refresh(refresh);
+        return this;
+    }
+
+    /**
      * Sets the replication type.
      */
     public UpdateRequestBuilder setReplicationType(ReplicationType replicationType) {
@@ -149,6 +159,16 @@ public class UpdateRequestBuilder extends BaseRequestBuilder<UpdateRequest, Upda
      */
     public UpdateRequestBuilder setConsistencyLevel(WriteConsistencyLevel consistencyLevel) {
         request.consistencyLevel(consistencyLevel);
+        return this;
+    }
+
+    /**
+     * Causes the updated document to be percolated. The parameter is the percolate query
+     * to use to reduce the percolated queries that are going to run against this doc. Can be
+     * set to <tt>*</tt> to indicate that all percolate queries should be run.
+     */
+    public UpdateRequestBuilder setPercolate(String percolate) {
+        request.percolate(percolate);
         return this;
     }
 

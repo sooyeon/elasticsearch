@@ -92,8 +92,6 @@ import static org.elasticsearch.common.settings.ImmutableSettings.Builder.EMPTY_
 
 /**
  * A node level registry of analyzers, to be reused by different indices which use default analyzers.
- *
- *
  */
 public class IndicesAnalysisService extends AbstractComponent {
 
@@ -327,6 +325,18 @@ public class IndicesAnalysisService extends AbstractComponent {
             @Override
             public TokenStream create(TokenStream tokenStream) {
                 return new StopFilter(Lucene.ANALYZER_VERSION, tokenStream, StopAnalyzer.ENGLISH_STOP_WORDS_SET);
+            }
+        }));
+
+        tokenFilterFactories.put("trim", new PreBuiltTokenFilterFactoryFactory(new TokenFilterFactory() {
+            @Override
+            public String name() {
+                return "trim";
+            }
+
+            @Override
+            public TokenStream create(TokenStream tokenStream) {
+                return new TrimFilter(tokenStream, false);
             }
         }));
 
