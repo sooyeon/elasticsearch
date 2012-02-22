@@ -19,39 +19,65 @@
 
 package org.elasticsearch.search.highlight;
 
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
+import static com.google.common.collect.Maps.newHashMap;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.TokenStream;
+import org.apache.lucene.analysis.tokenattributes.CharTermAttribute;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.Fieldable;
+import org.apache.lucene.index.CorruptIndexException;
+import org.apache.lucene.index.TermPositionVector;
 import org.apache.lucene.search.ConstantScoreQuery;
 import org.apache.lucene.search.Query;
-import org.apache.lucene.search.highlight.*;
-import org.apache.lucene.search.highlight.Formatter;
-import org.apache.lucene.search.vectorhighlight.*;
+import org.apache.lucene.search.highlight.DefaultEncoder;
+import org.apache.lucene.search.highlight.Encoder;
+import org.apache.lucene.search.highlight.Fragmenter;
+import org.apache.lucene.search.highlight.Highlighter;
+import org.apache.lucene.search.highlight.NullFragmenter;
+import org.apache.lucene.search.highlight.QueryScorer;
+import org.apache.lucene.search.highlight.SimpleHTMLEncoder;
+import org.apache.lucene.search.highlight.SimpleSpanFragmenter;
+import org.apache.lucene.search.highlight.TextFragment;
+import org.apache.lucene.search.vectorhighlight.CustomFieldQuery;
+import org.apache.lucene.search.vectorhighlight.FastVectorHighlighter;
+import org.apache.lucene.search.vectorhighlight.FieldQuery;
+import org.apache.lucene.search.vectorhighlight.FragListBuilder;
+import org.apache.lucene.search.vectorhighlight.MWCustomFieldQuery;
+import org.apache.lucene.search.vectorhighlight.MWSimpleHTMLFormatter;
+import org.apache.lucene.search.vectorhighlight.TermFragListBuilder;
 import org.elasticsearch.ElasticSearchException;
 import org.elasticsearch.common.io.FastStringReader;
 import org.elasticsearch.common.lucene.document.SingleFieldSelector;
 import org.elasticsearch.common.lucene.search.function.FiltersFunctionScoreQuery;
 import org.elasticsearch.common.lucene.search.function.FunctionScoreQuery;
-import org.elasticsearch.common.lucene.search.vectorhighlight.SimpleBoundaryScanner2;
 import org.elasticsearch.index.mapper.DocumentMapper;
 import org.elasticsearch.index.mapper.FieldMapper;
 import org.elasticsearch.index.mapper.MapperService;
 import org.elasticsearch.search.SearchParseElement;
 import org.elasticsearch.search.fetch.FetchPhaseExecutionException;
 import org.elasticsearch.search.fetch.FetchSubPhase;
-import org.elasticsearch.search.highlight.vectorhighlight.SourceScoreOrderFragmentsBuilder;
-import org.elasticsearch.search.highlight.vectorhighlight.SourceSimpleFragmentsBuilder;
 import org.elasticsearch.search.internal.InternalSearchHit;
+import org.elasticsearch.search.internal.InternalSearchHitField;
 import org.elasticsearch.search.internal.SearchContext;
 import org.elasticsearch.search.lookup.SearchLookup;
 
-import java.util.*;
-
-import static com.google.common.collect.Maps.newHashMap;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
+import com.meltwater.caesar.highlight.MultiFieldTermPositionVectorTokenSource;
+import com.meltwater.caesar.highlight.PositionGapFragmentsBuilder;
 
 /**
  *
@@ -94,6 +120,7 @@ public class HighlightPhase implements FetchSubPhase {
         DocumentMapper documentMapper = context.mapperService().documentMapper(hitContext.hit().type());
 
         Map<String, HighlightField> highlightFields = newHashMap();
+        Set<CISString> hitwords = new HashSet<CISString>();
         for (SearchContextHighlight.Field field : context.highlight().fields()) {
             Encoder encoder;
             if (field.encoder().equals("html")) {
@@ -156,12 +183,13 @@ public class HighlightPhase implements FetchSubPhase {
                     } else {
                         fragmenter = new SimpleSpanFragmenter(queryScorer, field.fragmentCharSize());
                     }
-                    Formatter formatter = new SimpleHTMLFormatter(field.preTags()[0], field.postTags()[0]);
+                    MWSimpleHTMLFormatter formatter = new MWSimpleHTMLFormatter(field.preTags()[0], field.postTags()[0]);
 
 
                     entry = new MapperHighlightEntry();
                     entry.highlighter = new Highlighter(formatter, encoder, queryScorer);
                     entry.highlighter.setTextFragmenter(fragmenter);
+                    entry.formatter = formatter;
 
                     cache.mappers.put(mapper, entry);
                 }
@@ -228,53 +256,22 @@ public class HighlightPhase implements FetchSubPhase {
                 }
 
                 if (fragments != null && fragments.length > 0) {
-                    HighlightField highlightField = new HighlightField(field.field(), fragments);
-                    highlightFields.put(highlightField.name(), highlightField);
+                    for (String term : entry.formatter.getTerms())
+                        hitwords.add(new CISString(term));
+                    if (highlight(field.field())) {
+                        HighlightField highlightField = new HighlightField(field.field(), fragments);
+                        highlightFields.put(highlightField.name(), highlightField);
+                    }
                 }
+
             } else {
                 try {
                     MapperHighlightEntry entry = cache.mappers.get(mapper);
                     FieldQuery fieldQuery = null;
                     if (entry == null) {
-                        FragListBuilder fragListBuilder;
-                        FragmentsBuilder fragmentsBuilder;
-
-                        BoundaryScanner boundaryScanner = SimpleBoundaryScanner2.DEFAULT;
-                        if (field.boundaryMaxScan() != SimpleBoundaryScanner2.DEFAULT_MAX_SCAN || field.boundaryChars() != SimpleBoundaryScanner2.DEFAULT_BOUNDARY_CHARS) {
-                            boundaryScanner = new SimpleBoundaryScanner2(field.boundaryMaxScan(), field.boundaryChars());
-                        }
-
-                        if (field.numberOfFragments() == 0) {
-                            fragListBuilder = new SingleFragListBuilder();
-
-                            if (mapper.stored()) {
-                                fragmentsBuilder = new SimpleFragmentsBuilder(field.preTags(), field.postTags(), boundaryScanner);
-                            } else {
-                                fragmentsBuilder = new SourceSimpleFragmentsBuilder(mapper, context, field.preTags(), field.postTags(), boundaryScanner);
-                            }
-                        } else {
-                            if (field.fragmentOffset() == -1)
-                                fragListBuilder = new SimpleFragListBuilder();
-                            else
-                                fragListBuilder = new SimpleFragListBuilder(field.fragmentOffset());
-
-                            if (field.scoreOrdered()) {
-                                if (mapper.stored()) {
-                                    fragmentsBuilder = new ScoreOrderFragmentsBuilder(field.preTags(), field.postTags(), boundaryScanner);
-                                } else {
-                                    fragmentsBuilder = new SourceScoreOrderFragmentsBuilder(mapper, context, field.preTags(), field.postTags(), boundaryScanner);
-                                }
-                            } else {
-                                if (mapper.stored()) {
-                                    fragmentsBuilder = new SimpleFragmentsBuilder(field.preTags(), field.postTags(), boundaryScanner);
-                                } else {
-                                    fragmentsBuilder = new SourceSimpleFragmentsBuilder(mapper, context, field.preTags(), field.postTags(), boundaryScanner);
-                                }
-                            }
-                        }
                         entry = new MapperHighlightEntry();
-                        entry.fragListBuilder = fragListBuilder;
-                        entry.fragmentsBuilder = fragmentsBuilder;
+                        entry.fragListBuilder = new TermFragListBuilder();
+                        entry.fragmentsBuilder = new PositionGapFragmentsBuilder();
                         if (cache.fvh == null) {
                             // parameters to FVH are not requires since:
                             // first two booleans are not relevant since they are set on the CustomFieldQuery (phrase and fieldMatch)
@@ -285,13 +282,13 @@ public class HighlightPhase implements FetchSubPhase {
                         if (field.requireFieldMatch()) {
                             if (cache.fieldMatchFieldQuery == null) {
                                 // we use top level reader to rewrite the query against all readers, with use caching it across hits (and across readers...)
-                                cache.fieldMatchFieldQuery = new CustomFieldQuery(context.parsedQuery().query(), hitContext.topLevelReader(), true, field.requireFieldMatch());
+                                cache.fieldMatchFieldQuery = new MWCustomFieldQuery(context.parsedQuery().query(), hitContext.topLevelReader(), true, field.requireFieldMatch());
                             }
                             fieldQuery = cache.fieldMatchFieldQuery;
                         } else {
                             if (cache.noFieldMatchFieldQuery == null) {
                                 // we use top level reader to rewrite the query against all readers, with use caching it across hits (and across readers...)
-                                cache.noFieldMatchFieldQuery = new CustomFieldQuery(context.parsedQuery().query(), hitContext.topLevelReader(), true, field.requireFieldMatch());
+                                cache.noFieldMatchFieldQuery = new MWCustomFieldQuery(context.parsedQuery().query(), hitContext.topLevelReader(), true, field.requireFieldMatch());
                             }
                             fieldQuery = cache.noFieldMatchFieldQuery;
                         }
@@ -307,6 +304,8 @@ public class HighlightPhase implements FetchSubPhase {
                             entry.fragListBuilder, entry.fragmentsBuilder, field.preTags(), field.postTags(), encoder);
 
                     if (fragments != null && fragments.length > 0) {
+                        for (String term : entry.fragmentsBuilder.getTerms())
+                            hitwords.add(new CISString(term));
                         HighlightField highlightField = new HighlightField(field.field(), fragments);
                         highlightFields.put(highlightField.name(), highlightField);
                     }
@@ -317,13 +316,21 @@ public class HighlightPhase implements FetchSubPhase {
         }
 
         hitContext.hit().highlightFields(highlightFields);
+        try {
+            addCustomHitDetails(hitContext, hitwords);
+        } catch (CorruptIndexException e) {
+            throw new FetchPhaseExecutionException(context, "Failed to fetch metadata field(s)", e);
+        } catch (IOException e) {
+            throw new FetchPhaseExecutionException(context, "Failed to fetch metadata field(s)", e);
+        }
     }
 
     static class MapperHighlightEntry {
         public FragListBuilder fragListBuilder;
-        public FragmentsBuilder fragmentsBuilder;
+        public PositionGapFragmentsBuilder fragmentsBuilder;
 
         public Highlighter highlighter;
+        public MWSimpleHTMLFormatter formatter;
     }
 
     static class HighlighterEntry {
@@ -331,5 +338,63 @@ public class HighlightPhase implements FetchSubPhase {
         public FieldQuery noFieldMatchFieldQuery;
         public FieldQuery fieldMatchFieldQuery;
         public Map<FieldMapper, MapperHighlightEntry> mappers = Maps.newHashMap();
+    }
+
+    private class CISString {
+        public String value;
+        public CISString(String value) { this.value = value; }
+        @Override public String toString() { return value; }
+        @Override public int hashCode() { return value.toLowerCase().hashCode(); }
+        @Override public boolean equals(Object o) { return value.toLowerCase().equals(o.toString().toLowerCase()); }
+    }
+    /**
+     * HACK! This is not the best place for this but necessary until
+     * Elasticsearch implements customizable fetchphase modules
+     * <sooyeon@meltwater.com>
+     * 
+     * @param hitContext
+     * @param cache
+     * @throws IOException 
+     * @throws CorruptIndexException 
+     */
+    private void addCustomHitDetails(HitContext hitContext, Collection<CISString> hitwords) throws CorruptIndexException, IOException
+    {
+        // fetch title
+        if (!hitContext.hit().getFields().containsKey("title")) {
+            String languageCode = hitContext.hit().getFields().get("language").getValue();
+            Document doc = hitContext.reader().document(hitContext.docId());
+            String fieldName = "title." + languageCode;
+            if (doc.getFieldable(fieldName) != null)
+                hitContext.hit().getFields().put("title", new InternalSearchHitField("title", Arrays.asList((Object) doc.get(fieldName))));
+        }
+
+        // reconstruct ingress
+        TermPositionVector vector = (TermPositionVector) hitContext.reader().getTermFreqVector(hitContext.docId(),
+                "ingress.snippet");
+        TokenStream stream = MultiFieldTermPositionVectorTokenSource.getTokenStream(vector, false);
+        CharTermAttribute termAtt = stream.addAttribute(CharTermAttribute.class);
+        StringBuilder sb = new StringBuilder();
+        while (stream.incrementToken())
+            sb.append(termAtt.toString()).append(' ');
+        hitContext.hit().getFields().put("ingress", new InternalSearchHitField("ingress", Arrays.asList((Object) sb.toString().trim())));
+
+        // list hitwords
+        if (!hitwords.isEmpty()) {
+            List<Object> terms = new ArrayList<Object>();
+            for (CISString hitword : hitwords)
+                terms.add(hitword.value);
+            hitContext.hit().getFields().put("hitwords", new InternalSearchHitField("hitwords", terms));
+        }
+    }
+    
+    public static boolean highlight(String fieldName)
+    {
+        if (fieldName.contains("title"))
+            return true;
+        else if (fieldName.contains("ingress"))
+            return true;
+        else if (fieldName.contains("content"))
+            return true;
+        return false;
     }
 }
