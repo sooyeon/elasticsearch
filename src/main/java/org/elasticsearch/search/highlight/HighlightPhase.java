@@ -60,6 +60,8 @@ import org.apache.lucene.search.vectorhighlight.MWSimpleHTMLFormatter;
 import org.apache.lucene.search.vectorhighlight.TermFragListBuilder;
 import org.elasticsearch.ElasticSearchException;
 import org.elasticsearch.common.io.FastStringReader;
+import org.elasticsearch.common.logging.ESLogger;
+import org.elasticsearch.common.logging.Loggers;
 import org.elasticsearch.common.lucene.document.SingleFieldSelector;
 import org.elasticsearch.common.lucene.search.function.FiltersFunctionScoreQuery;
 import org.elasticsearch.common.lucene.search.function.FunctionScoreQuery;
@@ -83,6 +85,7 @@ import com.meltwater.caesar.highlight.PositionGapFragmentsBuilder;
  *
  */
 public class HighlightPhase implements FetchSubPhase {
+    private final ESLogger logger = Loggers.getLogger(HighlightPhase.class);
 
     public static class Encoders {
         public static Encoder DEFAULT = new DefaultEncoder();
@@ -279,7 +282,7 @@ public class HighlightPhase implements FetchSubPhase {
                             cache.fvh = new FastVectorHighlighter();
                         }
                         CustomFieldQuery.highlightFilters.set(field.highlightFilter());
-                        if (field.requireFieldMatch()) {
+                        if (field.requireFieldMatch().booleanValue()) {
                             if (cache.fieldMatchFieldQuery == null) {
                                 // we use top level reader to rewrite the query against all readers, with use caching it across hits (and across readers...)
                                 cache.fieldMatchFieldQuery = new MWCustomFieldQuery(context.parsedQuery().query(), hitContext.topLevelReader(), true, field.requireFieldMatch());
@@ -318,6 +321,11 @@ public class HighlightPhase implements FetchSubPhase {
         hitContext.hit().highlightFields(highlightFields);
         try {
             addCustomHitDetails(hitContext, hitwords);
+
+            /*if (logger.isDebugEnabled()) {
+                logger.debug("Original Query: " + context.parsedQuery().query().toString(), (Object[]) null);
+                logger.debug("Rewritten Query: " + context.parsedQuery().query().rewrite(hitContext.reader()).toString(), (Object[]) null);
+            }*/
         } catch (CorruptIndexException e) {
             throw new FetchPhaseExecutionException(context, "Failed to fetch metadata field(s)", e);
         } catch (IOException e) {
