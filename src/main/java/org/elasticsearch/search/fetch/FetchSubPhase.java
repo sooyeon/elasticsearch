@@ -19,7 +19,6 @@
 
 package org.elasticsearch.search.fetch;
 
-import com.google.common.collect.Maps;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.index.IndexReader;
 import org.elasticsearch.ElasticSearchException;
@@ -41,7 +40,6 @@ public interface FetchSubPhase {
         private IndexReader reader;
         private int docId;
         private Document doc;
-        private Map<String, Object> cache;
 
         public void reset(InternalSearchHit hit, IndexReader reader, int docId, IndexReader topLevelReader, int topLevelDocId, Document doc) {
             this.hit = hit;
@@ -74,13 +72,6 @@ public interface FetchSubPhase {
 
         public Document doc() {
             return doc;
-        }
-
-        public Map<String, Object> cache() {
-            if (cache == null) {
-                cache = Maps.newHashMap();
-            }
-            return cache;
         }
     }
 

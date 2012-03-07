@@ -142,9 +142,9 @@ public class PositionGapFragmentsBuilder extends BaseFragmentsBuilder
             }
         });
 
-        if (log.isDebugEnabled()) {
+        if (log.isTraceEnabled()) {
             for (String snippet : snippets)
-                log.debug(snippet);
+                log.trace(snippet);
         }
 
         int toIndex = maxNumFragments > snippets.length ? snippets.length : maxNumFragments;

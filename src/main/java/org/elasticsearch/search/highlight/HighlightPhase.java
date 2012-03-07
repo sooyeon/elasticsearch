@@ -113,11 +113,13 @@ public class HighlightPhase implements FetchSubPhase {
 
     @Override
     public void hitExecute(SearchContext context, HitContext hitContext) throws ElasticSearchException {
+        long starttime = System.currentTimeMillis();
+
         // we use a cache to cache heavy things, mainly the rewrite in FieldQuery for FVH
-        HighlighterEntry cache = (HighlighterEntry) hitContext.cache().get("highlight");
+        HighlighterEntry cache = (HighlighterEntry) context.cache().get("highlight");
         if (cache == null) {
             cache = new HighlighterEntry();
-            hitContext.cache().put("highlight", cache);
+            context.cache().put("highlight", cache);
         }
 
         DocumentMapper documentMapper = context.mapperService().documentMapper(hitContext.hit().type());
@@ -281,21 +283,22 @@ public class HighlightPhase implements FetchSubPhase {
                             // fragment builders are used explicitly
                             cache.fvh = new FastVectorHighlighter();
                         }
-                        CustomFieldQuery.highlightFilters.set(field.highlightFilter());
-                        if (field.requireFieldMatch().booleanValue()) {
-                            if (cache.fieldMatchFieldQuery == null) {
-                                // we use top level reader to rewrite the query against all readers, with use caching it across hits (and across readers...)
-                                cache.fieldMatchFieldQuery = new MWCustomFieldQuery(context.parsedQuery().query(), hitContext.topLevelReader(), true, field.requireFieldMatch());
-                            }
-                            fieldQuery = cache.fieldMatchFieldQuery;
-                        } else {
-                            if (cache.noFieldMatchFieldQuery == null) {
-                                // we use top level reader to rewrite the query against all readers, with use caching it across hits (and across readers...)
-                                cache.noFieldMatchFieldQuery = new MWCustomFieldQuery(context.parsedQuery().query(), hitContext.topLevelReader(), true, field.requireFieldMatch());
-                            }
-                            fieldQuery = cache.noFieldMatchFieldQuery;
-                        }
                         cache.mappers.put(mapper, entry);
+                    }
+
+                    CustomFieldQuery.highlightFilters.set(field.highlightFilter());
+                    if (field.requireFieldMatch().booleanValue()) {
+                        if (cache.fieldMatchFieldQuery == null) {
+                            // we use top level reader to rewrite the query against all readers, with use caching it across hits (and across readers...)
+                            cache.fieldMatchFieldQuery = new MWCustomFieldQuery(context.parsedQuery().query(), hitContext.topLevelReader(), true, field.requireFieldMatch());
+                        }
+                        fieldQuery = cache.fieldMatchFieldQuery;
+                    } else {
+                        if (cache.noFieldMatchFieldQuery == null) {
+                            // we use top level reader to rewrite the query against all readers, with use caching it across hits (and across readers...)
+                            cache.noFieldMatchFieldQuery = new MWCustomFieldQuery(context.parsedQuery().query(), hitContext.topLevelReader(), true, field.requireFieldMatch());
+                        }
+                        fieldQuery = cache.noFieldMatchFieldQuery;
                     }
 
                     String[] fragments;
@@ -318,6 +321,7 @@ public class HighlightPhase implements FetchSubPhase {
             }
         }
 
+        long highlighttime = System.currentTimeMillis();
         hitContext.hit().highlightFields(highlightFields);
         try {
             addCustomHitDetails(hitContext, hitwords);
@@ -331,6 +335,10 @@ public class HighlightPhase implements FetchSubPhase {
         } catch (IOException e) {
             throw new FetchPhaseExecutionException(context, "Failed to fetch metadata field(s)", e);
         }
+
+        if (logger.isDebugEnabled())
+            logger.debug("highlighter time (" + (highlighttime - starttime) + "ms)   field time ("
+                    + (System.currentTimeMillis() - highlighttime) + "ms)", (Object[]) null);
     }
 
     static class MapperHighlightEntry {

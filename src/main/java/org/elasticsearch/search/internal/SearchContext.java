@@ -21,6 +21,8 @@ package org.elasticsearch.search.internal;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.apache.lucene.search.Filter;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.Sort;
@@ -155,6 +157,8 @@ public class SearchContext implements Releasable {
 
     private SearchContextHighlight highlight;
 
+    private Map<String, Object> cache;
+
     private SearchLookup searchLookup;
 
     private boolean queryRewritten;
@@ -275,6 +279,13 @@ public class SearchContext implements Releasable {
 
     public void highlight(SearchContextHighlight highlight) {
         this.highlight = highlight;
+    }
+
+    public Map<String, Object> cache() {
+        if (cache == null) {
+            cache = Maps.newHashMap();
+        }
+        return cache;
     }
 
     public boolean hasScriptFields() {
