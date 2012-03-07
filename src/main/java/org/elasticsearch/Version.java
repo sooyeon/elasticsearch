@@ -63,7 +63,10 @@ public class Version implements Serializable {
     public static final int V_0_19_0_RC3_ID = /*00*/190053;
     public static final Version V_0_19_0_RC3 = new Version(V_0_19_0_RC3_ID, false);
 
-    public static final Version CURRENT = V_0_19_0_RC3;
+    public static final int V_0_19_0_ID = /*00*/190099;
+    public static final Version V_0_19_0 = new Version(V_0_19_0_ID, false);
+
+    public static final Version CURRENT = V_0_19_0;
 
     public static Version readVersion(StreamInput in) throws IOException {
         return fromId(in.readVInt());
@@ -96,6 +99,8 @@ public class Version implements Serializable {
                 return V_0_19_0_RC2;
             case V_0_19_0_RC3_ID:
                 return V_0_19_0_RC3;
+            case V_0_19_0_ID:
+                return V_0_19_0;
             default:
                 return new Version(id, null);
         }
