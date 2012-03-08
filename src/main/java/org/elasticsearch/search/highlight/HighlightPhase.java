@@ -35,6 +35,7 @@ import java.util.Set;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.tokenattributes.CharTermAttribute;
+import org.apache.lucene.analysis.tokenattributes.OffsetAttribute;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.Fieldable;
@@ -381,6 +382,8 @@ public class HighlightPhase implements FetchSubPhase {
             Document doc = hitContext.reader().document(hitContext.docId());
             String fieldName = "title." + languageCode;
             if (doc.getFieldable(fieldName) != null)
+                fieldName = "title.other";
+            if (doc.getFieldable(fieldName) != null)
                 hitContext.hit().getFields().put("title", new InternalSearchHitField("title", Arrays.asList((Object) doc.get(fieldName))));
         }
 
@@ -389,9 +392,15 @@ public class HighlightPhase implements FetchSubPhase {
                 "ingress.snippet");
         TokenStream stream = MultiFieldTermPositionVectorTokenSource.getTokenStream(vector, false);
         CharTermAttribute termAtt = stream.addAttribute(CharTermAttribute.class);
+        OffsetAttribute offsetAtt = stream.addAttribute(OffsetAttribute.class);
+        int lastOffset = 0;
         StringBuilder sb = new StringBuilder();
-        while (stream.incrementToken())
-            sb.append(termAtt.toString()).append(' ');
+        while (stream.incrementToken()) {
+            for (; lastOffset < offsetAtt.startOffset(); lastOffset++)
+                sb.append(' ');
+            sb.append(termAtt.toString());
+            lastOffset = offsetAtt.endOffset();
+        }
         hitContext.hit().getFields().put("ingress", new InternalSearchHitField("ingress", Arrays.asList((Object) sb.toString().trim())));
 
         // list hitwords

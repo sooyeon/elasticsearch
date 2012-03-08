@@ -103,7 +103,11 @@ public class PositionGapFragmentsBuilder extends BaseFragmentsBuilder
         StringBuilder sb = new StringBuilder();
         float netBoost = 0f;
         int lastPositionIncrement = 0;
+        int lastOffset = 0;
         while (stream.incrementToken()) {
+            for (; lastOffset < offsetAtt.startOffset(); lastOffset++)
+                sb.append(' ');
+
             if (positionAtt.getPositionIncrement() - lastPositionIncrement > 1000) {
                 if (netBoost > 0f)
                     snippet2Boost.put(mergeTags(sb.toString().trim(), this.preTags[0], this.postTags[0]), Float.valueOf(netBoost));
@@ -125,8 +129,9 @@ public class PositionGapFragmentsBuilder extends BaseFragmentsBuilder
                 term = pretag + term + posttag;
                 netBoost += wfi.getTotalBoost();
             }
-            // TODO account for the fact that there maybe more than one whitespace
-            sb.append(term).append(' ');
+
+            sb.append(term);
+            lastOffset = offsetAtt.endOffset();
         }
         if (netBoost > 0f)
             snippet2Boost.put(mergeTags(sb.toString().trim(), this.preTags[0], this.postTags[0]), Float.valueOf(netBoost));
@@ -163,7 +168,7 @@ public class PositionGapFragmentsBuilder extends BaseFragmentsBuilder
     {
         if (base == null || o == null)
             return null;
-        if (base.endOffset() < o.startOffset() || base.startOffset() > o.endOffset())
+        if (base.endOffset() <= o.startOffset() || base.startOffset() >= o.endOffset())
             return null;
         return offset2Boost.get(base);
     }
